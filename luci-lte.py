@@ -5,6 +5,7 @@ import logging
 import json
 from dotenv import load_dotenv
 from luci_exception import LuciException
+from luci_parser import LuciParser
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,10 @@ def check_rpc_error(error):
         raise LuciException(msg)
 
 
-def get_new_token(url: str, username: str, password: str) -> str:
+def get_new_token(rpc_url: str, username: str, password: str) -> str:
+
+    url = rpc_url + '/auth'
+
     body = {
         "id": 1,
         "method": "login",
@@ -50,12 +54,14 @@ def get_new_token(url: str, username: str, password: str) -> str:
     return token
 
 
-def set_iface(url: str, if_name: str, if_status: str, token: str):
+def set_iface(rpc_url: str, if_name: str, if_status: str, token: str):
 
     if if_status not in ['0', '1']:
         msg = f"Interface status should be 0 or 1, got {if_status}. Aborting..."
         logger.critical(msg)
         raise LuciException(msg)
+
+    url = rpc_url + '/uci'
 
     body_set = {
         "method": "set",
@@ -92,7 +98,9 @@ def set_iface(url: str, if_name: str, if_status: str, token: str):
     check_rpc_error(res.json()['error'])
 
 
-def get_iface(url: str, if_name: str, token: str) -> str:
+def get_iface(rpc_url: str, if_name: str, token: str) -> str:
+
+    url = rpc_url + '/uci'
 
     body = {
         "method": "get_all",
@@ -114,34 +122,50 @@ def get_iface(url: str, if_name: str, token: str) -> str:
     return res.json()['result']
 
 
-def main():
+def parse_args() -> (str, str):
+    parser = LuciParser(description="Sets interface up or down and returns its state")
+    parser.add_argument("if_name", type=str, help="Interface name")
+    parser.add_argument("if_state", type=str, choices=('1', '0'),
+                        help="Interface state where 0 - disabled, 1 - enabled")
 
+    args = parser.parse_args()
+    return args.if_name, args.if_state
+
+
+def load_auth_data() -> (str, str, str):
     load_dotenv()
 
     username = os.environ.get("LuCI_USER")
     password = os.environ.get("LuCI_PASS")
-    rpc_host = os.environ.get("LuCI_HOST")
+    rpc_url = os.environ.get("LuCI_RPC_ROOT")
 
-    if not all([username, password, rpc_host]):
+    if not all([username, password, rpc_url]):
         msg = f"Failed to parse ENV data. Please specify LuCI username, password and host"
         logger.critical(msg)
-        exit(1)
+        raise LuciException(msg)
 
-    auth_url = rpc_host + '/auth'
-    uci_url = rpc_host + '/uci'
+    return username, password, rpc_url
+
+
+def main():
+
+    if_name, if_state = parse_args()
+    username, password, rpc_url = load_auth_data()
 
     logger.info("Authenticating...")
-    token = get_new_token(auth_url, username, password)
-
-    if_name = 'lte'
-    if_state = '1'
+    token = get_new_token(rpc_url, username, password)
 
     logger.info(f"Setting interface {if_name} to {if_state}")
-    set_iface(uci_url, if_name, if_state, token)
+    set_iface(rpc_url, if_name, if_state, token)
 
     logger.info(f"Verifying current state for {if_name}")
-    time.sleep(2)
-    iface_data = get_iface(uci_url, if_name, token)
+    time.sleep(1)
+    iface_data = get_iface(rpc_url, if_name, token)
+
+    if iface_data is None:
+        logger.info(f"Interface {if_name} doesn't exist. Please create it before running this program")
+        exit(2)
+
     logger.info(f"Current interface state: {iface_data}")
 
 
