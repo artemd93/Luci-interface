@@ -178,3 +178,7 @@ if __name__ == '__main__':
         print("Connection timed out. Check if the remote host is alive")
     except requests.exceptions.ReadTimeout:
         print("Reading from a connection timed out. Remote host is too slow?")
+    except requests.exceptions.ConnectionError:
+        print(f"Couldn't connect to the remote host")
+    except Exception as e:
+        print(e)
