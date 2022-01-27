@@ -1,0 +1,2 @@
+class LuciException(BaseException):
+    pass

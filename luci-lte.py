@@ -4,6 +4,7 @@ import requests
 import logging
 import json
 from dotenv import load_dotenv
+from luci_exception import LuciException
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ def check_rpc_error(error):
     if error is not None:
         msg = f"Got RCP error {error}"
         logger.critical(msg)
-        raise Exception(msg)
+        raise LuciException(msg)
 
 
 def get_new_token(url: str, username: str, password: str) -> str:
@@ -31,16 +32,21 @@ def get_new_token(url: str, username: str, password: str) -> str:
 
     payload = json.dumps(body)
 
-    res = requests.post(url, data=payload)
+    res = requests.post(url, data=payload, timeout=4)
 
     if not res.ok:
         msg = f"Got unexpected response code {res.status_code}"
         logger.critical(msg)
-        raise Exception(msg)
+        raise LuciException(msg)
 
     check_rpc_error(res.json()['error'])
 
     token = res.json()['result']
+    if token is None:
+        msg = f"Authentication failed"
+        logger.critical(msg)
+        raise LuciException(msg)
+
     return token
 
 
@@ -49,7 +55,7 @@ def set_iface(url: str, if_name: str, if_status: str, token: str):
     if if_status not in ['0', '1']:
         msg = f"Interface status should be 0 or 1, got {if_status}. Aborting..."
         logger.critical(msg)
-        raise Exception(msg)
+        raise LuciException(msg)
 
     body_set = {
         "method": "set",
@@ -72,7 +78,7 @@ def set_iface(url: str, if_name: str, if_status: str, token: str):
     if not res.ok:
         msg = f"Failed to set interface {if_name} to {if_status} with the error code {res.status_code}"
         logger.critical(msg)
-        raise Exception(msg)
+        raise LuciException(msg)
 
     check_rpc_error(res.json()['error'])
 
@@ -81,7 +87,7 @@ def set_iface(url: str, if_name: str, if_status: str, token: str):
     if not res.ok:
         msg = f"Failed to commit changes with the error code {res.status_code}"
         logger.critical(msg)
-        raise Exception(msg)
+        raise LuciException(msg)
 
     check_rpc_error(res.json()['error'])
 
@@ -140,4 +146,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except LuciException as e:
+        print(e)
+    except requests.exceptions.ConnectTimeout:
+        print("Connection timed out. Check if the remote host is alive")
+    except requests.exceptions.ReadTimeout:
+        print("Reading from a connection timed out. Remote host is too slow?")
+
