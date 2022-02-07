@@ -108,13 +108,40 @@ def get_iface(rpc_url: str, if_name: str, token: str) -> str:
     }
 
     payload = json.dumps(body)
-
     params = {"auth": token}
 
     res = requests.post(url, params=params, data=payload)
 
     if not res.ok:
         msg = f"Failed to get interface status for {if_name}"
+        logger.warn(msg)
+
+    check_rpc_error(res.json()['error'])
+
+    return res.json()['result']
+
+
+def call_service(rpc_url: str, token: str, process_name: str, status: str) -> str:
+
+    if status not in ['start', 'stop']:
+        msg = f"Service status should be start or stop, got {status}. Aborting..."
+        logger.critical(msg)
+        raise LuciException(msg)
+
+    url = rpc_url + '/sys'
+
+    body = {
+        "method": "exec",
+        "params": [f"/etc/init.d/{process_name} {status}"]
+    }
+
+    payload = json.dumps(body)
+    params = {"auth": token}
+
+    res = requests.post(url, params=params, data=payload)
+
+    if not res.ok:
+        msg = f"Failed to start process {process_name}"
         logger.warn(msg)
 
     check_rpc_error(res.json()['error'])
@@ -151,6 +178,13 @@ def main():
 
     if_name, if_state = parse_args()
     username, password, rpc_url = load_auth_data()
+    service_mas = "mas"
+    possible_mas_status = {
+        '1': 'start',
+        '0': 'stop'
+    }
+
+    status_mas = possible_mas_status[if_state]
 
     logger.info("Authenticating...")
     token = get_new_token(rpc_url, username, password)
@@ -167,6 +201,10 @@ def main():
         exit(2)
 
     logger.info(f"Current interface state: {iface_data}")
+
+    logger.info(f"Calling modem service: {status_mas}")
+    call_service(rpc_url, token, service_mas, status_mas)
+    logger.info("Done!")
 
 
 if __name__ == '__main__':
